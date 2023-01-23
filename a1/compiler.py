@@ -16,8 +16,22 @@ def select_instructions(program: Program) -> x86.X86Program:
     :return: a pseudo-x86 program
     """
 
-    # YOUR CODE HERE
-    pass
+    match program:
+        case Program([Print(Constant(n))]):
+            return x86.X86Program(
+                {
+                    'main':
+                        [
+                            x86.NamedInstr(
+                                "movq",
+                                [
+                                    x86.Immediate(n),
+                                    x86.Reg("rdi")
+                                ]),
+                            x86.Callq("print_int"),
+                            x86.Retq()
+                        ]
+                })
 
 
 ##################################################
