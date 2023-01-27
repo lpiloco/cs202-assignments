@@ -37,7 +37,53 @@ def rco(prog: Program) -> Program:
     :return: An Lvar program with atomic operator arguments.
     """
 
-    pass
+    #- rco_exp compiles an expression
+    #This should always return an atomic expression
+    def rco_exp(e: Expr, bindings: Dict[str, Expr]) -> Expr:
+        match e:
+        #- Constant or Var expression: just return it(already atomic)
+            case Constant(n):
+                return Constant(n)
+            case Var(x):
+                return Var(x)
+        #- Prim expression:
+            case Prim(op, args):
+                # Recursive call to rco_exp should make the argument atomic
+                new_args =[]
+                for a in args:
+                    new_args.append(rco_exp(a, bindings))
+                # new_args =[rco_exp(a, bindings) for a in args]   This does the same thing
+                tmp = gensym('tmp')
+                # Bind tmp to Prim(op, new_args)
+                bindings[tmp] = Prim(op, new_args)
+                return Var(tmp)
+
+
+            #- For each argument to the Prim, create a new temporary variable(if needed) and bind it to the result of compiling the argument expression
+            #- We can store new bindings in the environment: str -> Expr
+    #- rco_stmt compiles a statement
+    def rco_stmt(s: Stmt) -> Stmt:
+        #rco_stmt compiles a statement
+        #- Assign(x, e): call rco_exp on e
+        #- Print(e): call rco_exp on e
+        #- Challenge: what about bindings?
+        pass
+    #- rco_stmts compiles a list of statements
+    def rco_stmts(stmts: List[Stmt]) -> List[Stmt]:
+        #- rco_stmts compiles a list of statements
+        new_stmts = []
+        #- For each stmt
+        for stmt in stmts:
+            bindings = {}
+        #- call rco_stmt on the stmt
+            new_stmt = rco_stmt(stmt, bindings)
+        #TODO: turn each binding statement into assignment statement
+        # x --> e ===> Assign(x, e)
+        #TODO: Add each binding assignment to new_stmts
+        new_stmts.append(new_stmt)
+        pass
+
+    return Program(rco_stmts(prog.stmts))
 
 
 ##################################################
