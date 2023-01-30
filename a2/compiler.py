@@ -103,6 +103,28 @@ def select_instructions(prog: Program) -> x86.X86Program:
     :return: a pseudo-x86 program
     """
 
+    #- si_atm converts an LVar atomic into an x86 atomic
+    def si_atm(atm: Expr) -> x86.Arg:
+        pass
+    #- si_stmt converts an LVar statement into one or more x86 instruction
+    def si_stmt(stmt: Stmt) -> List[x86.Instr]:
+        match stmt:
+            case Assign(x, Prim('add', [atm1, atm2])):
+                pass
+            case Assign(x, atm1):
+                pass
+            case print(atm1):
+                pass
+    #- si_stmts compiles a list of statements
+    def si_stmts(stmts: List[Stmt]) -> List[x86.Instr]:
+        instrs = []
+
+        for stmt in stmts:
+            i = si_stmt(stmt)
+            instrs.extend(i)
+
+        return instrs
+
     pass
 
 
