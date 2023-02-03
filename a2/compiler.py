@@ -140,8 +140,34 @@ def assign_homes(program: x86.X86Program) -> x86.X86Program:
     :return: An x86 program, annotated with the amount of stack space used
     """
 
-    pass
+    homes: Dict[str, x86.Deref]= {}
 
+    def ah_arg(a: x86.Arg) -> x86.Arg:
+        #should replace variables with their homes
+        match a:
+            case x86.Immediate(i):
+                pass
+            case x86.Var(x):
+                #need to replace the var with a Deref
+                #return something like: x86.Deref('rbp', ???)
+                pass
+            case x86.Reg(r):
+                pass
+        pass
+
+    def ah_instr(i: x86.Instr) -> x86.Instr:
+        #should call arg on NamedInstr
+        pass
+
+    def ah_block(instrs: List[x86.Instr]) -> List[x86.Instr]:
+        #call ah_instr on each instruction
+        pass
+
+    blocks.program.blocks
+    new_blocks = {}
+    for label, instrs in blocks.items():
+        new_blocks[label] = ah_block(instrs)
+    return x86.x86Program(new_blocks, stack_space=TODO)
 
 ##################################################
 # patch-instructions
@@ -153,6 +179,15 @@ def patch_instructions(program: x86.X86Program) -> x86.X86Program:
     :param program: An x86 program.
     :return: A patched x86 program.
     """
+
+    #- pi_instr compile one instruction, may output two instructions
+    def pi_instr(i:x86.Instr) -> List[x86.Instr]:
+        pass
+    #- pi_block compiles on block of the program by calling pi_instr
+    def pi_block(instrs: List[x86.Instr]) -> List[x86.Instr]
+        new_instrs = []
+        for i  in instrs:
+            new_instrs.extend(pi_instr(i))
 
     pass
 
@@ -167,6 +202,13 @@ def prelude_and_conclusion(program: x86.X86Program) -> x86.X86Program:
     :param program: An x86 program.
     :return: An x86 program, with prelude and conclusion.
     """
+
+    prelude_instructions = []
+    conclusion_instructions = []
+
+    main_instrs  = program.blocks['main']
+    new_main_instrs = prelude_instructions + conclusion_instructions + main_instrs
+    program.blocks['main'] = main_instrs
 
     pass
 
