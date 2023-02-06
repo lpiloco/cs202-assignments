@@ -62,14 +62,20 @@ def rco(prog: Program) -> Program:
             #- For each argument to the Prim, create a new temporary variable(if needed) and bind it to the result of compiling the argument expression
             #- We can store new bindings in the environment: str -> Expr
     #- rco_stmt compiles a statement
-    def rco_stmt(s: Stmt) -> Stmt:
+    def rco_stmt(s: Stmt, bindings: Dict[str, Expr]) -> Stmt:
         #rco_stmt compiles a statement
+        match s:
         #- Assign(x, e): call rco_exp on e
+            case Assign(x, e):
+                new_e = rco_exp(e, bindings)
+                return Assign(x, new_e)
         #- Print(e): call rco_exp on e
+            case Print(e):
+                pass
         #- Challenge: what about bindings?
         pass
     #- rco_stmts compiles a list of statements
-    def rco_stmts(stmts: List[Stmt]) -> List[Stmt]:
+    def rco_stmts(stmts: List[Stmt], bindings: Dict[str, Expr]) -> List[Stmt]:
         #- rco_stmts compiles a list of statements
         new_stmts = []
         #- For each stmt
@@ -78,6 +84,8 @@ def rco(prog: Program) -> Program:
         #- call rco_stmt on the stmt
             new_stmt = rco_stmt(stmt, bindings)
         #TODO: turn each binding statement into assignment statement
+        for var in bindings:
+            # construct new statement
         # x --> e ===> Assign(x, e)
         #TODO: Add each binding assignment to new_stmts
         new_stmts.append(new_stmt)
