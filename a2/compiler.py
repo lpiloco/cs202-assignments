@@ -13,7 +13,6 @@ import cs202_support.x86 as x86
 
 gensym_num = 0
 
-
 def gensym(x):
     """
     Constructs a new variable name guaranteed to be unique.
@@ -38,62 +37,47 @@ def rco(prog: Program) -> Program:
     :return: An Lvar program with atomic operator arguments.
     """
 
-    # - rco_exp compiles an expression
-    # This should always return an atomic expression
-    def rco_exp(e: Expr, bindings: Dict[str, Expr]) -> Expr:
-        match e:
-            # - Constant or Var expression: just return it(already atomic)
-            case Constant(n):
-                return Constant(n)
-            case Var(x):
-                return Var(x)
-            # - Prim expression:
-            case Prim(op, args):
-                # Recursive call to rco_exp should make the argument atomic
-                new_args = []
-                for a in args:
-                    new_args.append(rco_exp(a, bindings))
-                # new_args =[rco_exp(a, bindings) for a in args]   This does the same thing
-                tmp = gensym('tmp')
-                # Bind tmp to Prim(op, new_args)
-                bindings[tmp] = Prim(op, new_args)
-                return Var(tmp)
+    def rco_stmt(stmt: Stmt, bindings: Dict[str, Expr]) -> Stmt:
+        match stmt:
+            case Assign(x, e1):
+                new_e1 = rco_exp(e1, bindings)
+                return Assign(x, new_e1)
+            case Print(e1):
+                new_e1 = rco_exp(e1, bindings)
+                return Print(new_e1)
+            case _:
+                raise Exception('rco_stmt', stmt)
 
-            # - For each argument to the Prim, create a new temporary variable(if needed) and bind it to the result of compiling the argument expression
-            # - We can store new bindings in the environment: str -> Expr
-
-    # - rco_stmt compiles a statement
-    def rco_stmt(s: Stmt, bindings: Dict[str, Expr]) -> Stmt:
-        # rco_stmt compiles a statement
-        match s:
-            # - Assign(x, e): call rco_exp on e
-            case Assign(x, e):
-                new_e = rco_exp(e, bindings)
-                return Assign(x, new_e)
-            # - Print(e): call rco_exp on e
-            case Print(e):
-                return rco_exp(e)
-        # - Challenge: what about bindings?
-        pass
-
-    # - rco_stmts compiles a list of statements
-    def rco_stmts(stmts: List[Stmt], bindings: Dict[str, Expr]) -> List[Stmt]:
-        # - rco_stmts compiles a list of statements
+    def rco_stmts(stmts: List[Stmt]) -> List[Stmt]:
         new_stmts = []
-        # - For each stmt
-        bindings = {}
+
         for stmt in stmts:
-            # - call rco_stmt on the stmt
+            bindings = {}
+            # (1) compile the statement
             new_stmt = rco_stmt(stmt, bindings)
-        # turn each binding statement into assignment statement
-        for var in bindings:
-            # construct new statement
-            new_stmt = rco_stmt(var)
-            # x --> e ===> Assign(x, e)
-            # Add each binding assignment to new_stmts
+            # (2) add the new bindings created by rco_exp
+            new_stmts.extend([Assign(x, e) for x, e in bindings.items()])
+            # (3) add the compiled statement itself
             new_stmts.append(new_stmt)
 
-        return Program(rco_stmts(prog.stmts, bindings))
+        return new_stmts
+
+    def rco_exp(e: Expr, bindings: Dict[str, Expr]) -> Expr:
+        match e:
+            case Var(x):
+                return Var(x)
+            case Constant(i):
+                return Constant(i)
+            case Prim(op, args):
+                new_args = [rco_exp(e, bindings) for e in args]
+                new_e = Prim(op, new_args)
+                new_v = gensym('tmp')
+                bindings[new_v] = new_e
+                return Var(new_v)
+            case _:
+                raise Exception('rco_exp', e)
+
+    return Program(rco_stmts(prog.stmts))
 
 
 ##################################################
@@ -113,38 +97,39 @@ def select_instructions(prog: Program) -> x86.X86Program:
     :return: a pseudo-x86 program
     """
 
-    # - si_atm converts an LVar atomic into an x86 atomic
-    def si_atm(atm: Expr) -> x86.Arg:
-        match atm:
-            case x86.Immediate(n):
-                return n
+    def si_atm(a: Expr) -> x86.Arg:
+        match a:
+            case Constant(i):
+                return x86.Immediate(i)
             case Var(x):
-                return x
-            case x86.Reg(s):
-                return s
+                return x86.Var(x)
+            case _:
+                raise Exception('si_atm', a)
 
-
-    # - si_stmt converts an LVar statement into one or more x86 instruction
-    def si_stmt(stmt: Stmt) -> List[x86.Instr]:
-        match stmt:
-            case Assign(x, Prim('add', [atm1, atm2])):
-                pass
-            case Assign(x, atm1):
-                pass
-            case print(atm1):
-                pass
-
-    # - si_stmts compiles a list of statements
     def si_stmts(stmts: List[Stmt]) -> List[x86.Instr]:
         instrs = []
 
         for stmt in stmts:
-            i = si_stmt(stmt)
-            instrs.extend(i)
+            instrs.extend(si_stmt(stmt))
 
         return instrs
 
-    pass
+    def si_stmt(stmt: Stmt) -> List[x86.Instr]:
+        match stmt:
+            case Assign(x, Prim('add', [atm1, atm2])):
+                return [x86.NamedInstr('movq', [si_atm(atm1), x86.Reg('rax')]),
+                        x86.NamedInstr('addq', [si_atm(atm2), x86.Reg('rax')]),
+                        x86.NamedInstr('movq', [x86.Reg('rax'), x86.Var(x)])]
+            case Assign(x, atm1):
+                return [x86.NamedInstr('movq', [si_atm(atm1), x86.Var(x)])]
+            case Print(atm1):
+                return [x86.NamedInstr('movq', [si_atm(atm1), x86.Reg('rdi')]),
+                        x86.Callq('print_int')]
+            case _:
+                raise Exception('si_stmt', stmt)
+
+    instrs: List[x86.Instr] = si_stmts(prog.stmts)
+    return x86.X86Program({'main': instrs})
 
 
 ##################################################
@@ -159,34 +144,47 @@ def assign_homes(program: x86.X86Program) -> x86.X86Program:
     :return: An x86 program, annotated with the amount of stack space used
     """
 
-    homes: Dict[str, x86.Deref] = {}
+    def align(num_bytes: int) -> int:
+        if num_bytes % 16 == 0:
+            return num_bytes
+        else:
+            return num_bytes + (16 - (num_bytes % 16))
+
+    homes: Dict[str, x86.Arg] = {}
 
     def ah_arg(a: x86.Arg) -> x86.Arg:
-        # should replace variables with their homes
         match a:
             case x86.Immediate(i):
-                pass
-            case x86.Var(x):
-                # need to replace the var with a Deref
-                # return something like: x86.Deref('rbp', ???)
-                pass
+                return a
             case x86.Reg(r):
-                pass
-        pass
+                return a
+            case x86.Var(x):
+                if x in homes:
+                    return homes[x]
+                else:
+                    current_stack_size = len(homes) * 8
+                    offset = -(current_stack_size + 8)
+                    homes[x] = x86.Deref('rbp', offset)
+                    return x86.Deref('rbp', offset)
+            case _:
+                raise Exception('ah_arg', a)
 
-    def ah_instr(i: x86.Instr) -> x86.Instr:
-        # should call arg on NamedInstr
-        pass
+    def ah_instr(e: x86.Instr) -> x86.Instr:
+        match e:
+            case x86.NamedInstr(i, args):
+                return x86.NamedInstr(i, [ah_arg(a) for a in args])
+            case _:
+                if isinstance(e, (x86.Callq, x86.Retq, x86.Jmp)):
+                    return e
+                else:
+                    raise Exception('ah_instr', e)
 
     def ah_block(instrs: List[x86.Instr]) -> List[x86.Instr]:
-        # call ah_instr on each instruction
-        pass
+        return [ah_instr(i) for i in instrs]
 
-        blocks.program.blocks
-        new_blocks = {}
-        for label, instrs in blocks.items():
-            new_blocks[label] = ah_block(instrs)
-        return x86.x86Program(new_blocks, stack_space=TODO)
+    blocks = program.blocks
+    new_blocks = {label: ah_block(block) for label, block in blocks.items()}
+    return x86.X86Program(new_blocks, stack_space = align(8 * len(homes)))
 
 
 ##################################################
@@ -200,17 +198,28 @@ def patch_instructions(program: x86.X86Program) -> x86.X86Program:
     :return: A patched x86 program.
     """
 
-    # - pi_instr compile one instruction, may output two instructions
-    def pi_instr(i: x86.Instr) -> List[x86.Instr]:
-        pass
+    def pi_instr(e: x86.Instr) -> List[x86.Instr]:
+        match e:
+            case x86.NamedInstr('movq', [x86.Deref(_, _), x86.Deref(_, _)]):
+                return [x86.NamedInstr('movq', [e.args[0], x86.Reg('rax')]),
+                        x86.NamedInstr('movq', [x86.Reg('rax'), e.args[1]])]
+            case x86.NamedInstr('addq', [x86.Deref(_, _), x86.Deref(_, _)]):
+                return [x86.NamedInstr('movq', [e.args[0], x86.Reg('rax')]),
+                        x86.NamedInstr('addq', [x86.Reg('rax'), e.args[1]])]
+            case _:
+                if isinstance(e, (x86.Callq, x86.Retq, x86.Jmp, x86.NamedInstr)):
+                    return [e]
+                else:
+                    raise Exception('pi_instr', e)
 
-    # - pi_block compiles on block of the program by calling pi_instr
     def pi_block(instrs: List[x86.Instr]) -> List[x86.Instr]:
-        new_instrs = []
-        for i in instrs:
-            new_instrs.extend(pi_instr(i))
+        new_instrs = [pi_instr(i) for i in instrs]
+        flattened = [val for sublist in new_instrs for val in sublist]
+        return flattened
 
-    pass
+    blocks = program.blocks
+    new_blocks = {label: pi_block(block) for label, block in blocks.items()}
+    return x86.X86Program(new_blocks, stack_space = program.stack_space)
 
 
 ##################################################
@@ -224,14 +233,18 @@ def prelude_and_conclusion(program: x86.X86Program) -> x86.X86Program:
     :return: An x86 program, with prelude and conclusion.
     """
 
-    prelude_instructions = []
-    conclusion_instructions = []
+    prelude = [x86.NamedInstr('pushq', [x86.Reg('rbp')]),
+               x86.NamedInstr('movq',  [x86.Reg('rsp'), x86.Reg('rbp')]),
+               x86.NamedInstr('subq',  [x86.Immediate(program.stack_space),
+                                        x86.Reg('rsp')])]
 
-    main_instrs = program.blocks['main']
-    new_main_instrs = prelude_instructions + conclusion_instructions + main_instrs
-    program.blocks['main'] = main_instrs
+    conclusion = [x86.NamedInstr('addq', [x86.Immediate(program.stack_space),
+                                          x86.Reg('rsp')]),
+                  x86.NamedInstr('popq', [x86.Reg('rbp')]),
+                  x86.Retq()]
 
-    pass
+    new_blocks = {'main': prelude + program.blocks['main'] + conclusion}
+    return x86.X86Program(new_blocks, stack_space = program.stack_space)
 
 
 ##################################################
