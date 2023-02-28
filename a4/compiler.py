@@ -78,7 +78,51 @@ def rco(prog: Program) -> Program:
     :return: An Lif program with atomic operator arguments.
     """
 
-    pass
+    def rco_stmt(stmt: Stmt, bindings: Dict[str, Expr]) -> Stmt:
+        match stmt:
+            case Assign(x, e1):
+                new_e1 = rco_exp(e1, bindings)
+                return Assign(x, new_e1)
+            case Print(e1):
+                new_e1 = rco_exp(e1, bindings)
+                return Print(new_e1)
+            case If(condition, then_stmts, else_stmts):
+                return If(rco_exp(condition, bindings),
+                          rco_stmts(then_stmts),
+                          rco_stmts(else_stmts))
+            case _:
+                raise Exception('rco_stmt', stmt)
+
+    def rco_stmts(stmts: List[Stmt]) -> List[Stmt]:
+        new_stmts = []
+
+        for stmt in stmts:
+            bindings = {}
+            # (1) compile the statement
+            new_stmt = rco_stmt(stmt, bindings)
+            # (2) add the new bindings created by rco_exp
+            new_stmts.extend([Assign(x, e) for x, e in bindings.items()])
+            # (3) add the compiled statement itself
+            new_stmts.append(new_stmt)
+
+        return new_stmts
+
+    def rco_exp(e: Expr, bindings: Dict[str, Expr]) -> Expr:
+        match e:
+            case Var(x):
+                return Var(x)
+            case Constant(i):
+                return Constant(i)
+            case Prim(op, args):
+                new_args = [rco_exp(e, bindings) for e in args]
+                new_e = Prim(op, new_args)
+                new_v = gensym('tmp')
+                bindings[new_v] = new_e
+                return Var(new_v)
+            case _:
+                raise Exception('rco_exp', e)
+
+    return Program(rco_stmts(prog.stmts))
 
 
 ##################################################
