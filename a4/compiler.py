@@ -58,7 +58,35 @@ def typecheck(program: Program) -> Program:
     :return: The program, if it is well-typed
     """
 
-    pass
+    def tc_exp(e: Expr, env: TEnv) -> type:
+        match e:
+            case Var(x):
+                return env[x]
+            case Constant(n):
+                return type(n)
+            case Prim('add', [e1, e2]):
+                assert tc_exp(e1, env) == int
+                assert tc_exp(e2, env) == int
+                return int
+            case Prim('eq', [e1, e2]):
+                assert tc_exp(e1, env) == tc_exp(e2, env)
+                return bool
+
+    def tc_stmt(s: Stmt, env: TEnv):
+        match s:
+            case Assign(x, e):
+                if x in env:
+                    assert env[x] == tc_exp(e, env)
+                else:
+                    env[x] = tc_exp(e, env)
+            case Print(e):
+                tc_exp(e, env)
+            case If(e1, s1, s2):
+                assert tc_exp(e1, env) == bool
+                for s in s1:
+                    tc_stmt(s, env)
+                for s in s2:
+                    tc_stmt(s, env)
 
 
 ##################################################
