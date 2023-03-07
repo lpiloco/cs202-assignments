@@ -1,4 +1,4 @@
-from typing import Set, Dict
+from typing import Set, Dict, List
 import itertools
 import sys
 import traceback
@@ -7,6 +7,7 @@ from cs202_support.python import *
 import cs202_support.x86 as x86
 import constants
 import cif
+from cs202_support.x86 import Var
 from interference_graph import InterferenceGraph
 
 comparisons = ['eq', 'gt', 'gte', 'lt', 'lte']
@@ -51,7 +52,7 @@ def gensym(x):
 TEnv = Dict[str, type]
 
 
-def typecheck(program: Program) -> Program:
+def typecheck(prog: Program) -> Program:
     """
     Typechecks the input program; throws an error if the program is not well-typed.
     :param program: The Lif program to typecheck
@@ -171,6 +172,7 @@ def explicate_control(prog: Program) -> cif.CProgram:
     """
     # pass should have a "global" basic_blocks: Dict[str, List[cif.Stmt]]
     basic_blocks: Dict[str, List[cif.Stmt]] = {'conclusion': set()}
+
     # pass should have a create_block function that adds a new block to basic_blocks with a unique name (using gensym)
     def create_block(stmts: List[cif.Stmt]) -> str:
         new_label = gensym('label')
@@ -185,7 +187,6 @@ def explicate_control(prog: Program) -> cif.CProgram:
                 return cif.Constant(n)
             case _:
                 raise Exception('ec_atm', e)
-
 
     def ec_expr(e: Expr) -> cif.Expr:
         match e:
@@ -213,7 +214,7 @@ def explicate_control(prog: Program) -> cif.CProgram:
             cont = ec_stmt(s, cont)
         return cont
 
-    #main body
+    # main body
     new_body = [cif.Return(0)]
     for stmts in Program:
         new_body = ec_stmts(stmts, new_body, basic_blocks)
@@ -260,11 +261,13 @@ def select_instructions(prog: cif.CProgram) -> x86.X86Program:
     # finish dicts
     op_instructions = {'add': 'addq', 'sub': 'subq', }
     cmp_codes = {'eq': 'e', 'gt': 'g', 'gte': 'ge', 'lt': 'l', 'lte': 'le'}
+
     def si_stmt(stmt: cif.Stmt) -> List[x86.Instr]:
         match stmt:
-            # TODO: new cases
+            # new cases
             case cif.Assign(x, cif.Prim('not', [atm1])):
-                pass
+                return [x86.NamedInstr('movq', [si_atm(atm1), x86.Var(x)]),
+                        x86.NamedInstr('xorq', [si_atm(1), x86.Var(x)])]
             case cif.Assign(x, cif.Prim(op, [atm1, atm2])):
                 # These operators use their own instructions: "add" | "sub" | "not" | "or" | "and" |
                 # These operators use cmpq: "eq" | "gt" | "gte" | "lt" | "lte"
@@ -273,8 +276,8 @@ def select_instructions(prog: cif.CProgram) -> x86.X86Program:
                             x86.NamedInstr(op, [si_atm(atm2), x86.Reg('rax')]),
                             x86.NamedInstr('movq', [x86.Reg('rax'), x86.Var(x)])]
                 elif op in cmp_codes:
-                    return[x86.NamedInstr('movq', [si_atm(atm1), x86.Reg('rax')]),
-                           x86.NamedInstr('cmpq', [si_atm(atm2), x86.Reg('rax')])]
+                    return [x86.NamedInstr('movq', [si_atm(atm1), x86.Reg('rax')]),
+                            x86.NamedInstr('cmpq', [si_atm(atm2), x86.Reg('rax')])]
             case cif.Assign(x, atm1):
                 return [x86.NamedInstr('movq', [si_atm(atm1), x86.Var(x)])]
             case cif.Print(atm1):
@@ -282,8 +285,8 @@ def select_instructions(prog: cif.CProgram) -> x86.X86Program:
                         x86.Callq('print_int')]
             case cif.Goto(label):
                 return [x86.Jmp(label)]
-            case cif.Return(a1):
-                return [x86.NamedInstr('movq', [si_atm(a1), x86.Reg('rax')]),
+            case cif.Return(atm1):
+                return [x86.NamedInstr('movq', [si_atm(atm1), x86.Reg('rax')]),
                         x86.Jmp('conclusion')]
             case _:
                 raise Exception('si_stmt', stmt)
@@ -309,6 +312,7 @@ def select_instructions(prog: cif.CProgram) -> x86.X86Program:
 Color = int
 Coloring = Dict[x86.Var, Color]
 Saturation = Set[Color]
+
 
 def allocate_registers(program: x86.X86Program) -> x86.X86Program:
     """
@@ -373,9 +377,9 @@ def allocate_registers(program: x86.X86Program) -> x86.X86Program:
     def ul_instr(i: x86.Instr, live_after: Set[x86.Var]) -> Set[x86.Var]:
         return live_after.difference(writes_of(i)).union(reads_of(i))
 
-    # TODO: change this so that it takes a label and gets instructions for that label from prog.blocks
+    # change this so that it takes a label and gets instructions for that label from prog.blocks
     # save live afters and live befores in global dicts
-    def ul_block(label:str) -> List[Set[x86.Var]]:
+    def ul_block(label: str) -> dict[str, list[set[Var]]]:
         current_live_after: Set[x86.Var] = set()
         instrs = basic_blocks[label]
 
@@ -386,6 +390,7 @@ def allocate_registers(program: x86.X86Program) -> x86.X86Program:
         live_before_sets[label] = current_live_after
 
         live_after_sets[label] = list(reversed(local_live_after_sets))
+        return live_after_sets
 
     # --------------------------------------------------
     # interference graph
@@ -535,8 +540,9 @@ def patch_instructions(program: x86.X86Program) -> x86.X86Program:
 
     def pi_instr(e: x86.Instr) -> List[x86.Instr]:
         match e:
-            case x86.NamedInstr('cmpq', ): # TODO
-                pass
+            case x86.NamedInstr('cmpq', [x86.Deref(_, _), x86.Deref(_, _)]):
+                return [x86.NamedInstr('movq', [e.args[0], x86.Reg('rax')]),
+                        x86.NamedInstr('callq', [e.args[1], x86.Reg('rax')])]
             case x86.NamedInstr('movq', [x86.Deref(_, _), x86.Deref(_, _)]):
                 return [x86.NamedInstr('movq', [e.args[0], x86.Reg('rax')]),
                         x86.NamedInstr('movq', [x86.Reg('rax'), e.args[1]])]
@@ -580,18 +586,18 @@ def prelude_and_conclusion(program: x86.X86Program) -> x86.X86Program:
     prelude = [x86.NamedInstr('pushq', [x86.Reg('rbp')]),
                x86.NamedInstr('movq', [x86.Reg('rsp'), x86.Reg('rbp')]),
                x86.NamedInstr('subq', [x86.Immediate(program.stack_space),
-                                       x86.Reg('rsp')])]
-                # TODO: add a jump to start
+                                       x86.Reg('rsp')]),
+               x86.Jmp('start')]
 
     conclusion = [x86.NamedInstr('addq', [x86.Immediate(program.stack_space),
                                           x86.Reg('rsp')]),
                   x86.NamedInstr('popq', [x86.Reg('rbp')]),
                   x86.Retq()]
 
-    #new_blocks = {'main': prelude + program.blocks['main'] + conclusion}
+    # new_blocks = {'main': prelude + program.blocks['main'] + conclusion}
     program.blocks['main'] = prelude
     program.blocks['conclusion'] = conclusion
-    return x86.X86Program(program.blocks, stack_space = program.stack_space)
+    return x86.X86Program(program.blocks, stack_space=program.stack_space)
 
 
 ##################################################
@@ -666,4 +672,3 @@ if __name__ == '__main__':
             except:
                 print('Error during compilation! **************************************************')
                 traceback.print_exception(*sys.exc_info())
-
