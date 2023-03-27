@@ -277,7 +277,7 @@ def explicate_control(prog: Program) -> cif.CProgram:
                 test_label = gensym('loop_label')
                 body_label = create_block(explicate_stmts(body_stmts, [cif.Goto(test_label)]))
                 basic_blocks[test_label] = explicate_stmts(cond_stmts, [
-                    cif.If(explicate_exp(cond_exp, cif.Goto(body_label), cif.Goto(cont_label)))])
+                    cif.If(explicate_exp(cond_exp), cif.Goto(body_label), cif.Goto(cont_label))])
                 return [cif.Goto(test_label)]
             case _:
                 raise RuntimeError(stmt)
@@ -625,7 +625,31 @@ def patch_instructions(program: x86.X86Program) -> x86.X86Program:
     :return: A patched x86 program.
     """
 
-    pass
+    def pi_instr(e: x86.Instr) -> List[x86.Instr]:
+        match e:
+            case x86.NamedInstr(i, [x86.Deref(r1, o1), x86.Deref(r2, o2)]):
+                return [x86.NamedInstr('movq', [x86.Deref(r1, o1), x86.Reg('rax')]),
+                        x86.NamedInstr(i, [x86.Reg('rax'), x86.Deref(r2, o2)])]
+            case x86.NamedInstr('movzbq', [x86.Deref(r1, o1), x86.Deref(r2, o2)]):
+                return [x86.NamedInstr('movzbq', [x86.Deref(r1, o1), x86.Reg('rax')]),
+                        x86.NamedInstr('movq', [x86.Reg('rax'), x86.Deref(r2, o2)])]
+            case x86.NamedInstr('cmpq', [a1, x86.Immediate(i)]):
+                return [x86.NamedInstr('movq', [x86.Immediate(i), x86.Reg('rax')]),
+                        x86.NamedInstr('cmpq', [a1, x86.Reg('rax')])]
+            case _:
+                if isinstance(e, (x86.Callq, x86.Retq, x86.Jmp, x86.JmpIf, x86.NamedInstr, x86.Set)):
+                    return [e]
+                else:
+                    raise Exception('pi_instr', e)
+
+    def pi_block(instrs: List[x86.Instr]) -> List[x86.Instr]:
+        new_instrs = [pi_instr(i) for i in instrs]
+        flattened = [val for sublist in new_instrs for val in sublist]
+        return flattened
+
+    blocks = program.blocks
+    new_blocks = {label: pi_block(block) for label, block in blocks.items()}
+    return x86.X86Program(new_blocks, stack_space=program.stack_space)
 
 
 ##################################################
@@ -646,7 +670,21 @@ def prelude_and_conclusion(program: x86.X86Program) -> x86.X86Program:
     :return: An x86 program, with prelude and conclusion.
     """
 
-    pass
+    prelude = [x86.NamedInstr('pushq', [x86.Reg('rbp')]),
+               x86.NamedInstr('movq', [x86.Reg('rsp'), x86.Reg('rbp')]),
+               x86.NamedInstr('subq', [x86.Immediate(program.stack_space),
+                                       x86.Reg('rsp')]),
+               x86.Jmp('start')]
+
+    conclusion = [x86.NamedInstr('addq', [x86.Immediate(program.stack_space),
+                                          x86.Reg('rsp')]),
+                  x86.NamedInstr('popq', [x86.Reg('rbp')]),
+                  x86.Retq()]
+
+    new_blocks = program.blocks.copy()
+    new_blocks['main'] = prelude
+    new_blocks['conclusion'] = conclusion
+    return x86.X86Program(new_blocks, stack_space=program.stack_space)
 
 
 ##################################################
